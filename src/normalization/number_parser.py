@@ -152,7 +152,7 @@ def detect_unit(context: str) -> tuple[str | None, float]:
 
     Returns: (ten don vi da chuan hoa, he so ve VND). Khong thay -> (None, 1.0).
     """
-    from ..utils.vn_text import normalize_text
+    from ..utils.spell_check import normalize_text
 
     flat = normalize_text(context)
     for pattern, label in _UNIT_PATTERNS:

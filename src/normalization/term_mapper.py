@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..utils.vn_text import normalize_text
+from ..utils.spell_check import normalize_text
 
 # metric_key -> cac cach dien dat trong BCTC/cau hoi (khong dau, lowercase)
 FINANCIAL_TERMS: dict[str, tuple[str, ...]] = {

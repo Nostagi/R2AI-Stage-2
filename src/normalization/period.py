@@ -33,7 +33,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 
-from ..utils.vn_text import normalize_text
+from ..utils.spell_check import normalize_text
 
 
 class Period(str, Enum):
@@ -227,7 +227,7 @@ def detect_requested_period(question: str) -> Period | None:
     chu dich — bo qua no gay sai hoan toan, con lay them opening thi chi la
     du mot dong trong prompt.
     """
-    from ..utils.vn_text import normalize_text
+    from ..utils.spell_check import normalize_text
 
     flat = normalize_text(question)
     if _Q_OPENING_RE.search(flat):

@@ -49,12 +49,11 @@ class Settings:
     llm: dict[str, Any]
     execution: dict[str, Any]
     submission: dict[str, Any]
-    logging: dict[str, Any]
     retrieval: dict[str, Any] = field(default_factory=dict)
 
     # Secrets tu .env — khong bao gio de trong YAML
     hf_token: str | None = None
-    llm_api_key: str | None = None
+    dataset:str | None = None
 
     def raw_value(self, dotted: str, default: Any = None) -> Any:
         """Truy cap sau, vd: settings.raw_value("retrieval.bm25.k1")."""
@@ -75,6 +74,7 @@ def get_settings() -> Settings:
     load_dotenv(PROJECT_ROOT / ".env")
 
     main = _read_yaml(CONFIG_DIR / "config.yaml")
+    llm = _read_yaml(CONFIG_DIR / "llm.yaml")
     retrieval = _read_yaml(CONFIG_DIR / "retrieval.yaml")
 
     raw_paths = main.get("paths", {})
@@ -84,11 +84,10 @@ def get_settings() -> Settings:
         root=PROJECT_ROOT,
         paths=paths,
         corpus=main.get("corpus", {}),
-        llm=main.get("llm", {}),
         execution=main.get("execution", {}),
         submission=main.get("submission", {}),
-        logging=main.get("logging", {}),
+        llm=llm,
         retrieval=retrieval,
-        hf_token=os.getenv("HF_TOKEN"),
-        llm_api_key=os.getenv("LLM_API_KEY"),
+        hf_token=main.get("HF_token", None),
+        dataset=main.get("dataset", None)
     )

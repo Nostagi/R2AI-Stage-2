@@ -1,0 +1,83 @@
+llms:
+  - alias: header_fixer
+    model: ./models/Qwen3-8B
+    prompt_path: ./prompts/header_fix.txt
+    backend:
+      type: llama_cpp
+      model_file: ./models/qwen3-8b-q4_k_m.gguf
+      n_ctx: 8192
+      n_gpu_layers: -1
+    params:
+      temperature: 0.0
+      max_new_tokens: 1024
+
+  - alias: row_fixer
+    model: ./models/Qwen3-8B
+    prompt_path: ./prompts/corrupted_row_fixer.txt
+    backend:
+      type: llama_cpp
+      model_file: ./models/qwen3-8b-q4_k_m.gguf
+      n_ctx: 8192
+      n_gpu_layers: -1
+    params:
+      temperature: 0.0
+      max_new_tokens: 1024
+
+  - alias: recall_retriever
+    model: Qwen/Qwen3-8B
+    prompt_path: null
+    backend:
+      type: transformers
+      device: cuda
+      dtype: bfloat16
+    params:
+      temperature: 0.0
+      max_new_tokens: 512
+
+  - alias: precision_reranker
+    model: ./models/Qwen3-8B
+    prompt_path: null
+    backend:
+      type: llama_cpp
+      model_file: ./models/qwen3-8b-q4_k_m.gguf
+      n_ctx: 8192
+      n_gpu_layers: -1
+    params:
+      temperature: 0.0
+      max_new_tokens: 512
+
+  - alias: text_to_pandas_generator
+    model: ./models/Qwen2.5-14B-Instruct-AWQ
+    prompt_path: ./prompts/pandas_gen.txt
+    backend:
+      type: vllm
+      gpu_memory_utilization: 0.85
+      max_model_len: 8192
+      dtype: auto
+      quantization: awq
+    params:
+      temperature: 0.1
+      max_new_tokens: 1024
+      top_p: 0.95
+
+  - alias: query_planner
+    model: qwen3:8b
+    prompt_path: null
+    backend:
+      type: ollama
+      host: http://localhost:11434
+    params:
+      temperature: 0.0
+      num_predict: 1024
+  
+  - alias: grok_reasoning_agent
+    model: grok-2-latest
+    prompt_path: null
+    backend:
+      type: api
+      base_url: https://api.x.ai/v1
+      api_key: ${XAI_API_KEY}  # Hoặc điền trực tiếp "xai-..."
+    params:
+      temperature: 0.2
+      max_tokens: 2048
+      top_p: 0.95

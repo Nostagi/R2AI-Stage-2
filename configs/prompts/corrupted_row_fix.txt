@@ -1,0 +1,16 @@
+Bạn là một chuyên gia xử lý và sửa lỗi cấu trúc dữ liệu báo cáo tài chính.
+
+Dưới đây là thông tin cấu trúc cột và dòng dữ liệu bị lỗi OCR/xô lệch cột:
+- Danh sách cột chuẩn ({n_cols} cột): {flat_header}
+- Dòng dữ liệu bị lỗi: {corrupted_row}
+
+NHIỆM VỤ:
+Phân rã chuỗi dữ liệu bị dính/lệch cột ở dòng trên và xếp chính xác từng giá trị vào đúng cột tương ứng.
+
+QUY TẮC BẮT BUỘC:
+1. BẮT BUỘC trả về đúng {n_cols} phần tử (tương ứng với {n_cols} cột từ trái qua phải).
+2. Nếu một cột không có dữ liệu tương ứng trong dòng, điền chuỗi rỗng "".
+3. Kết quả trả về phải là một JSON Array hợp lệ chứa danh sách các chuỗi (strings).
+4. Không viết thêm bất kỳ lời giải thích hay ký tự markdown nào ngoài JSON Array.
+
+OUTPUT (JSON Array):

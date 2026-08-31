@@ -30,7 +30,7 @@ from pathlib import Path
 
 from ..config import get_settings
 from ..utils.logging import get_logger
-from ..utils.vn_text import normalize_text
+from ..utils.spell_check import normalize_text
 
 log = get_logger(__name__)
 

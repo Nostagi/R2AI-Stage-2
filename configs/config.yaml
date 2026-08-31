@@ -1,3 +1,6 @@
+dataset: "AIGuruTinix/ViFinQA"
+HF_token: "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"
+
 paths:
   raw: data/raw                  # kho .txt (financial_statements/<TICKER>/<YEAR>/<DOC>/<DOC>_extracted.txt)
   interim: data/interim          # bảng thô đã cắt khỏi .txt, chưa chuẩn hoá
@@ -13,19 +16,6 @@ corpus:
   min_table_cols: 2
   keep_empty_tables: false
 
-llm:
-  # Ràng buộc cuộc thi: open-weight, <= 14B, release truoc 2026-06-01
-  model_id: Qwen/Qwen2.5-14B-Instruct
-  backend: vllm                  # vllm | transformers | openai
-  base_url: http://localhost:8000/v1
-  max_tokens: 768                # so token sinh moi luot
-  temperature: 0.0
-  top_p: 1.0
-  seed: 42
-  dtype: auto
-  gpu_memory_utilization: 0.90
-  max_model_len: 8192
-
 execution:
   timeout_sec: 15
   max_repair_attempts: 3
@@ -36,7 +26,3 @@ submission:
   fallback_answer: 0.0
   csv_prefix: data/              # mọi csv_path phải bắt đầu bằng đây
   round_to: 2
-
-logging:
-  level: INFO
-  file: logs/app.log

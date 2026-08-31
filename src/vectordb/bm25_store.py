@@ -15,7 +15,7 @@ import numpy as np
 from ..config import get_settings
 from ..utils.io import load_pickle, save_pickle
 from ..utils.logging import get_logger
-from ..utils.vn_text import tokenize
+from ..utils.spell_check import tokenize
 
 log = get_logger(__name__)
 

@@ -10,7 +10,7 @@ from ..config import get_settings
 from ..embeddings.table_card import TableCardBuilder
 from ..extraction.table_builder import TableBuilder
 from ..extraction.table_detector import TableDetector
-from ..ingestion.loader import CorpusLoader
+from ..extraction.pipeline import CorpusLoader
 from ..normalization.csv_writer import CsvWriter
 from ..normalization.schema_std import SchemaStandardizer
 from ..utils.logging import get_logger

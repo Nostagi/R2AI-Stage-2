@@ -1,231 +1,116 @@
-"""Trich xuat bang HTML inline trong file .txt OCR cua ViFinQA.
-
-DINH DANG THUC TE (da kiem chung tren data/raw)
-------------------------------------------------
-File OCR giu ranh gioi trang bang `===== PAGE N =====` va ma hoa bang
-duoi dang HTML mot dong:
-
-    <table><tr><td>Másố</td><td>TÀI SẢN</td>...</tr><tr>...</tr></table>
-
-Day la dinh dang chinh: mot BCTC dien hinh co ~80 the <table> va gan nhu
-KHONG co dong pipe/tab nao. Vi vay `table_detector.py` (pipe/tab/whitespace)
-khong dung duoc cho kho nay — module nay moi la duong chinh.
-
-VAN DE ROWSPAN (quan trong)
----------------------------
-OCR gop nhieu gia tri vao MOT o khi o do co rowspan:
-
-    <td rowspan="3">963.717.122.052237.314.356.418726.402.765.634</td>
-
-Ba so bi dan lien. May man la quy uoc so Viet Nam nhom 3 chu so, nen
-regex greedy `\\d{1,3}(?:\\.\\d{3})*` tach lai duoc DUY NHAT:
-    963.717.122.052 | 237.314.356.418 | 726.402.765.634
-Ham `split_glued_numbers` lam viec nay; khi so luong tach duoc dung bang
-rowspan thi phan phoi tung so cho tung dong, nguoc lai giu nguyen ca o
-(tha de nguyen con hon doan sai -> sai so lieu).
-"""
-
-from __future__ import annotations
-
 import re
-from dataclasses import dataclass, field
-from html import unescape
+from dataclasses import dataclass, replace
+from pathlib import Path
+import pandas as pd
+from typing import List, Optional
 
-_TABLE_RE = re.compile(r"<table[^>]*>(.*?)</table>", re.DOTALL | re.IGNORECASE)
+from ..contracts.schemas import Table
+from src.config import get_settings
+from ..utils.io import write_csv
+
 _ROW_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
-_CELL_RE = re.compile(
-    r"<t([dh])([^>]*)>(.*?)</t\1>", re.DOTALL | re.IGNORECASE
-)
-_SPAN_RE = re.compile(r"\browspan\s*=\s*[\"']?(\d+)", re.IGNORECASE)
-_COLSPAN_RE = re.compile(r"\bcolspan\s*=\s*[\"']?(\d+)", re.IGNORECASE)
+_CELL_RE = re.compile(r"<t[dh][^>]*>(.*?)</t[dh]>", re.DOTALL | re.IGNORECASE)
 _TAG_RE = re.compile(r"<[^>]+>")
-_PAGE_RE = re.compile(r"^=====\s*PAGE\s+(\d+)\s*=====\s*$", re.MULTILINE)
 
-# So kieu Viet Nam: nhom nghin bang dau '.', thap phan bang ','.
-# Cho phep dau ngoac ke toan. Nhanh `-` don le la o RONG trong BCTC
-# (vd "758.600.000.000-" = mot so roi mot o trong bi dan lien).
-_VN_NUMBER_RE = re.compile(r"\(?-?\d{1,3}(?:\.\d{3})+(?:,\d+)?\)?|-")
-# O co ve la du lieu so (de phan biet o gop that vs o bi dan so).
-_NUMERIC_CELL_RE = re.compile(r"^[\d\s.,()\-]+$")
-# Co it nhat mot so lieu tien te (>= 4 chu so co nhom nghin).
-_FIGURE_RE = re.compile(r"\d{1,3}(?:\.\d{3})+")
+def _extract_cells(row_html: str) -> List[str]:
+    """Bóc tách text thô từ các thẻ td/th trong một dòng tr."""
+    cells = _CELL_RE.findall(row_html)
+    return [_TAG_RE.sub(" ", c).replace("\xa0", " ").strip() for c in cells]
 
+@dataclass
+class TableRow:
+    cells: List[str]
+    is_header: bool = False
+    is_corrupted: bool = False
 
-def split_glued_numbers(text: str) -> list[str]:
-    """Tach mot chuoi nhieu so Viet Nam bi dan lien.
-
-    Chi tach khi ca chuoi la day so lien tuc (khong con ky tu la), nham
-    tranh cat sai o van ban.
-
-    >>> split_glued_numbers("963.717.122.052237.314.356.418")
-    ['963.717.122.052', '237.314.356.418']
-    """
-    stripped = text.strip()
-    if not stripped or not _NUMERIC_CELL_RE.match(stripped):
-        return [stripped] if stripped else []
-    parts: list[str] = []
-    pos = 0
-    for m in _VN_NUMBER_RE.finditer(stripped):
-        if m.start() != pos:  # co ky tu la chen giua -> khong tach
-            return [stripped]
-        parts.append(m.group())
-        pos = m.end()
-    if pos != len(stripped) or len(parts) < 2:
-        return [stripped]
-    return parts
-
-
-@dataclass(slots=True)
+@dataclass
 class HtmlTable:
-    """Mot the <table> da giai ma thanh luoi o."""
+    rows: List[TableRow]
+    table: Optional[Table] = None
 
-    position: int
-    rows: list[list[str]]
-    char_start: int
-    char_end: int
-    page: int | None = None
-    context_before: str = ""
-    n_cols: int = field(default=0)
+    @classmethod
+    @classmethod
+    def from_schema(cls, table: Table) -> "HtmlTable":
+        """Khởi tạo HtmlTable từ schema Table và giữ reference đến Table gốc."""
+        if not table.html_table:
+            return cls(rows=[], table=table)
 
-    def __post_init__(self) -> None:
-        self.n_cols = max((len(r) for r in self.rows), default=0)
+        def _extract_cells(row_html: str) -> List[str]:
+            cells = _CELL_RE.findall(row_html)
+            return [_TAG_RE.sub(" ", c).replace("\xa0", " ").strip() for c in cells]
 
+        parsed_parts: List[List[List[str]]] = []
+        for html_chunk in table.html_table:
+            raw_rows = _ROW_RE.findall(html_chunk)
+            parsed_parts.append([_extract_cells(r) for r in raw_rows])
 
-def _clean_cell(raw: str) -> str:
-    return unescape(_TAG_RE.sub(" ", raw)).replace("\xa0", " ").strip()
+        if not parsed_parts:
+            return cls(rows=[], table=table)
 
-
-def _parse_rows(inner: str) -> list[list[str]]:
-    """Giai ma <tr>/<td> co rowspan + colspan thanh luoi chu nhat."""
-    raw_rows = [m.group(1) for m in _ROW_RE.finditer(inner)]
-    if not raw_rows:
-        return []
-
-    grid: list[list[str | None]] = [[] for _ in raw_rows]
-    # carry[col] = (text_con_lai, so_dong_con_lai)
-    pending: list[tuple[int, int, list[str]]] = []  # (col, rows_left, values)
-
-    for r, raw in enumerate(raw_rows):
-        row = grid[r]
-        cells = [
-            (m.group(2) or "", _clean_cell(m.group(3)))
-            for m in _CELL_RE.finditer(raw)
-        ]
-        col = 0
-        cur: list[tuple[int, int, list[str]]] = []
-        for attrs, text in cells:
-            # nhuong cho cac o rowspan tu dong tren
-            while any(p[0] == col for p in pending):
-                p = next(x for x in pending if x[0] == col)
-                while len(row) <= col:
-                    row.append(None)
-                row[col] = p[2].pop(0) if p[2] else ""
-                col += 1
-
-            span = int(m.group(1)) if (m := _SPAN_RE.search(attrs)) else 1
-            cspan = int(m.group(1)) if (m := _COLSPAN_RE.search(attrs)) else 1
-
-            while len(row) <= col:
-                row.append(None)
-            if span > 1:
-                vals = split_glued_numbers(text)
-                if len(vals) == span:
-                    # o bi dan nhieu gia tri -> tra ve dung tung dong
-                    row[col] = vals[0]
-                    cur.append((col, span - 1, vals[1:]))
-                elif _FIGURE_RE.search(text):
-                    # co so lieu that nhung khong tach duoc dung so dong ->
-                    # chi giu o dong dau, KHONG lap (lap se nhan ban so lieu sai)
-                    row[col] = text
-                    cur.append((col, span - 1, []))
+        header_count = 0
+        if len(parsed_parts) > 1:
+            part1 = parsed_parts[0]
+            for i, row in enumerate(part1):
+                is_common = all(
+                    i < len(p) and p[i] == row 
+                    for p in parsed_parts[1:]
+                )
+                if is_common:
+                    header_count += 1
                 else:
-                    # o gop that (nhan, so hieu thuyet minh) -> lap xuong duoi
-                    row[col] = text
-                    cur.append((col, span - 1, [text] * (span - 1)))
-            else:
-                row[col] = text
-            col += cspan
-            while len(row) < col:
-                row.append("")
+                    break
 
-        # do not cac o rowspan con lai o cuoi dong
-        for p in list(pending):
-            c = p[0]
-            while len(row) <= c:
-                row.append(None)
-            if row[c] is None:
-                row[c] = p[2].pop(0) if p[2] else ""
+        final_rows: List[TableRow] = []
+        for i, row_cells in enumerate(parsed_parts[0]):
+            final_rows.append(TableRow(cells=row_cells, is_header=(i < header_count)))
 
-        pending = [(c, n - 1, v) for c, n, v in pending if n - 1 > 0]
-        pending.extend(cur)
+        for part in parsed_parts[1:]:
+            for row_cells in part[header_count:]:
+                final_rows.append(TableRow(cells=row_cells, is_header=False))
 
-    width = max((len(r) for r in grid), default=0)
-    return [[("" if c is None else c) for c in r] + [""] * (width - len(r)) for r in grid]
+        return cls(rows=final_rows, table=table)
 
-
-def _page_index(text: str) -> list[tuple[int, int]]:
-    """[(char_offset, page_number)] tu cac marker ===== PAGE N =====."""
-    return [(m.start(), int(m.group(1))) for m in _PAGE_RE.finditer(text)]
-
-
-def _page_at(index: list[tuple[int, int]], offset: int) -> int | None:
-    page = None
-    for start, num in index:
-        if start > offset:
-            break
-        page = num
-    return page
-
-
-def _context_before(text: str, start: int, chars: int) -> str:
-    """Van ban thuan truoc bang, dung cho unit/section/title detection.
-
-    Cat tu sau `</table>` gan nhat de khong keo markup cua bang truoc vao,
-    roi xoa moi the con lai va cac marker ===== PAGE N =====.
+class TableUpdater:
     """
-    lo = max(0, start - chars)
-    chunk = text[lo:start]
-    cut = chunk.rfind("</table>")
-    if cut != -1:
-        chunk = chunk[cut + len("</table>") :]
-    chunk = _PAGE_RE.sub(" ", _TAG_RE.sub(" ", chunk))
-    lines = [ln.strip() for ln in chunk.splitlines()]
-    return "\n".join(ln for ln in lines if ln)
-
-
-def extract_html_tables(
-    text: str,
-    *,
-    min_rows: int = 2,
-    min_cols: int = 2,
-    context_chars: int = 400,
-) -> list[HtmlTable]:
-    """Tim moi the <table> trong van ban, tra ve theo thu tu xuat hien.
-
-    `position` bat dau tu 1 va la vi tri bang trong bao cao — dung truc tiep
-    cho `relevant_tables` dang "<doc_id>|<position>".
+    Chuyển đổi HtmlTable thành pandas.DataFrame, xuất file CSV bằng `write_csv` (utf-8-sig),
+    và trả về một instance Table mới đã cập nhật csv_path, xóa html_table và giữ lại toàn bộ metadata.
     """
-    pages = _page_index(text)
-    out: list[HtmlTable] = []
-    position = 0
-    for m in _TABLE_RE.finditer(text):
-        position += 1
-        rows = _parse_rows(m.group(1))
-        if len(rows) < min_rows or max((len(r) for r in rows), default=0) < min_cols:
-            continue
-        out.append(
-            HtmlTable(
-                position=position,
-                rows=rows,
-                char_start=m.start(),
-                char_end=m.end(),
-                page=_page_at(pages, m.start()),
-                context_before=_context_before(text, m.start(), context_chars),
-            )
+
+    def __init__(self, processed_dir: Optional[Path] = None):
+        settings = get_settings()
+        self.processed_dir = processed_dir or settings.paths.processed
+        self.processed_dir.mkdir(parents=True, exist_ok=True)
+
+    def update(self, html_table: HtmlTable) -> Table:
+        orig_table = html_table.table
+        if orig_table is None:
+            raise ValueError("HtmlTable không chứa tham chiếu đến đối tượng Table gốc (.table is None).")
+
+        # 1. Phân tách Header (1D) và Data Rows để tạo DataFrame
+        header_rows = [r for r in html_table.rows if r.is_header]
+        data_rows = [r for r in html_table.rows if not r.is_header]
+
+        columns = header_rows[0].cells if header_rows else None
+        data = [r.cells for r in data_rows]
+
+        df = pd.DataFrame(data, columns=columns)
+
+        # 2. Tạo tên file CSV dựa trên doc_id (từ Document) và dòng trong file OCR
+        doc_id = orig_table.docs.doc_id if orig_table.docs else "doc"
+        lines_str = orig_table.line[0]
+        
+        filename = f"at_{lines_str}.csv"
+        csv_file_path = self.processed_dir / doc_id / filename
+
+        # 3. Ghi file CSV bằng io utils (write_csv)
+        write_csv(df, csv_file_path)
+
+        # 4. Tạo đối tượng Table mới kế thừa toàn bộ core data & metadata
+        # Sử dụng dataclasses.replace để copy đầy đủ các trường (docs, line, statement, title,...)
+        updated_table = replace(
+            orig_table,
+            csv_path=Path(csv_file_path),  # Chuẩn Path theo schema
+            html_table=None                # Xóa trắng trường html_table
         )
-    return out
 
-
-def count_html_tables(text: str) -> int:
-    """Dem the <table> khong giai ma — dung de do dinh dang nhanh."""
-    return len(_TABLE_RE.findall(text))
+        return updated_table

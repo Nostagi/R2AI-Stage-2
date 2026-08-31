@@ -19,9 +19,9 @@ Hệ thống được thiết kế theo mô hình xử lý theo đợt (**Batch 
 [02. Index Pipeline] ──► BM25 + Dense Vectors (BGE-M3) + Lọc BCTC Mẹ vs Hợp nhất
                                   │
                                   ▼
-[03. Inference Pipeline] ──► Hybrid Retrieval ──► Few-Shot CoT Prompt ──► LLM (Qwen2.5-14B-AWQ)
-                                  │                                              │
-                                  ▼                                              ▼
+[03. Inference Pipeline] ──► Hybrid Retrieval ──► Few-Shot CoT Prompt ──► LLM (Qwen2.5-Coder-7B-Instruct)
+                                  │                                                │
+                                  ▼                                                ▼
                              Checkpointing ◄── Pandas Sandbox AST ◄── Self-Repair (Tối đa 3 lượt)
                                   │
                                   ▼
@@ -74,10 +74,10 @@ R2AI-Stage-2/
 
 Dự án được thiết kế để hoạt động mượt mà trên cả 3 môi trường: **Local**, **Google Colab**, và **Kaggle**.
 
-### 🌟 Cách Clone & Khôi phục Dữ liệu (Dành cho Repo không chứa data thô)
+### Cách Clone & Khôi phục Dữ liệu (Dành cho Repo không chứa data thô)
 Khi bạn hoặc người dùng khác clone repo từ GitHub:
 ```bash
-git clone https://github.com/Noone9725/R2AI-Stage-2.git
+git clone https://github.com/Nostagi/R2AI-Stage-2.git
 cd R2AI-Stage-2
 ```
 Thư mục `data/` nặng (>100,000 file CSV) được loại trừ khỏi Git để tối ưu dung lượng repo. Bạn có 2 cách để nạp dữ liệu:
@@ -90,7 +90,7 @@ Thư mục `data/` nặng (>100,000 file CSV) được loại trừ khỏi Git �
 Mở file [notebooks/pipeline_runner_colab.ipynb](notebooks/pipeline_runner_colab.ipynb) trên Google Colab:
 1. **Mục 1 (Môi trường):** Mount Google Drive, đồng bộ mã nguồn vào ổ SSD NVMe tạm (`/content/R2AI-Stage-2`) và cài đặt `requirements.txt`.
 2. **Mục 2 (Dữ liệu - Chọn 2.A hoặc 2.B):**
-   * **Phương án 2.A:** Nạp nhanh và giải nén `data_backup.zip` từ Google Drive `/MyDrive/backup/data_backup.zip` vào ổ NVMe (mất ~30s).
+   * **Phương án 2.A:** Nạp nhanh và giải nén `data_backup.zip` từ Google Drive `/MyDrive/backup/data_backup.zip` vào ổ NVMe.
    * **Phương án 2.B:** Xây dựng toàn bộ từ đầu theo từng bước: `fetch` $\rightarrow$ `corpus` $\rightarrow$ `index` $\rightarrow$ đóng gói `data_backup.zip` lưu lại vào Drive.
 3. **Mục 3 (Suy luận):** Chạy lệnh suy luận với mô hình `Qwen/Qwen2.5-Coder-7B-Instruct` (4-bit BitsAndBytes). Hệ thống tự động sao lưu checkpoint kép (vừa lưu local vừa sync sang Drive sau mỗi 5 câu).
 4. **Mục 4 & 5 (Đóng gói & Đánh giá):** Tạo file `submission.zip` lưu vào Google Drive và đánh giá trên tập nhãn chuẩn `gold.json`.
@@ -138,21 +138,24 @@ Hệ thống cho phép chuyển đổi linh hoạt mô hình và backend suy lu�
 
 ```yaml
 llm:
-  # Cấu hình MẶC ĐỊNH cho GPU T4 (Colab / Kaggle 16GB)
-  model_id: Qwen/Qwen2.5-14B-Instruct-AWQ
-  backend: vllm                  # vllm | transformers | openai
+  # Cấu hình MẶC ĐỊNH cho GPU T4 (Colab / Kaggle 16GB) & Local GPU
+  model_id: Qwen/Qwen2.5-Coder-7B-Instruct
+  backend: transformers          # transformers | vllm | openai
   base_url: http://localhost:8000/v1
-  max_tokens: 512
+  max_tokens: 512                # so token sinh moi luot
   temperature: 0.0
+  top_p: 1.0
+  seed: 42
+  dtype: auto
   quantization: awq              # awq | gptq | none (chống tràn VRAM 16GB)
-  gpu_memory_utilization: 0.90
+  gpu_memory_utilization: 0.75
   max_model_len: 4096
 
 llm_local:
-  # Cấu hình MẶC ĐỊNH cho Local GPU (RTX 2050 4GB)
+  # Cấu hình MẶC ĐỊNH cho Local GPU/CPU
   model_id: Qwen/Qwen2.5-Coder-1.5B-Instruct
   backend: transformers
-  max_tokens: 256
+  max_tokens: 512
   temperature: 0.0
   device_map: auto
   torch_dtype: float16
@@ -233,9 +236,9 @@ python main.py eval --pred outputs/predictions/questions_pred.json
 
 ### Cách 3: Chạy qua Jupyter Notebook
 
-Mở [notebooks/pipeline_runner_colab.ipynb](file:R2AI-Stage-2/notebooks/pipeline_runner_colab.ipynb) trên Google Colab.
-Hoặc mở [notebooks/pipeline_runner_kaggle.ipynb](file:R2AI-Stage-2/notebooks/pipeline_runner_kaggle.ipynb) trên Kaggle Notebook.
-Sau đó chạy các cell code cần thiết để tương tác trực quan và theo dõi tiến trình từng ô lệnh.
+* Mở [notebooks/pipeline_runner_colab.ipynb](file:R2AI-Stage-2/notebooks/pipeline_runner_colab.ipynb) trên Google Colab.
+* Hoặc mở [notebooks/pipeline_runner_kaggle.ipynb](file:R2AI-Stage-2/notebooks/pipeline_runner_kaggle.ipynb) trên Kaggle Notebook.
+    Sau đó chạy các cell code cần thiết để tương tác trực quan và theo dõi tiến trình từng ô lệnh.
 
 ---
 
@@ -324,9 +327,8 @@ Cấu trúc mỗi phần tử trong `submission.json`:
 
 ---
 
-## Bạn có thể lấy dataset đã build sẵn tại:
-* File `.zip.bin`:
-https://www.kaggle.com/datasets/anhtu25/s2-backup
-
-* Dataset đã unzip:
-https://www.kaggle.com/datasets/anhtu25/r2ai-s2-backup
+## Bạn có thể lấy dataset đã xử lý sẵn tại:
+* Dataset dạng nén `.zip.bin`: 
+    [https://www.kaggle.com/datasets/anhtu25/s2-backup](https://www.kaggle.com/datasets/anhtu25/s2-backup)
+* Dataset thư mục đã giải nén sẵn: 
+    [https://www.kaggle.com/datasets/anhtu25/r2ai-s2-backup](https://www.kaggle.com/datasets/anhtu25/r2ai-s2-backup)

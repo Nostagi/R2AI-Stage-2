@@ -205,7 +205,7 @@ python main.py index
 python main.py infer \
 # hoặc: python scripts/03_generate_answers.py \
     --questions data/questions/questions.jsonl \
-    --model Qwen/Qwen2.5-14B-Instruct-AWQ \
+    --model Qwen/Qwen2.5-Coder-7B-Instruct \
     --backend vllm \
     --pred outputs/predictions/questions_pred.json
 ```

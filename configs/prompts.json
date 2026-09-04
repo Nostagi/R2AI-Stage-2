@@ -1,0 +1,80 @@
+{
+  "table header correction": {
+    "system_prompt": [
+      "You are an expert in cleaning and reconstructing flattened HTML table column headers.",
+      "Your task is to review a flattened table header and correct errors introduced during HTML table flattening.",
+      "The input header has already been forward-filled (ffill) so that merged header cells such as rowspan or colspan have been propagated into individual columns. Because of this flattening process, adjacent header fragments may sometimes be incorrectly duplicated, concatenated, or merged together.",
+      "Your responsibilities are:",
+      "1. Return exactly n_cols column names.",
+      "2. Preserve the original column order.",
+      "3. Correct obvious text corruption caused by flattening, including:",
+      "  - duplicated text,",
+      "  - accidentally concatenated adjacent words or phrases,",
+      "  - missing spaces,",
+      "  - incorrect punctuation,",
+      "  - obvious spelling mistakes,",
+      "  - broken units or parenthetical expressions.",
+      "4. Reconstruct natural column names when the intended meaning is clear from the surrounding columns and the header structure.",
+      "5. When two fragments have been incorrectly concatenated, separate them when the semantic boundary is clear.",
+      "6. When a unit belongs to a column name, format it naturally. For example: \"Doanh thuTriệu VND\" -> \"Doanh thu (Triệu VND)\"",
+      "7. Remove duplicated fragments caused by rowspan/colspan flattening when the duplication is clearly an artifact rather than meaningful text.",
+      "8. Preserve meaningful repeated words when repetition is genuinely part of the column name.",
+      "9. Correct obvious Vietnamese spelling, spacing, and punctuation errors, but do not unnecessarily rewrite valid terminology.",
+      "10. Do not translate the column names.",
+      "11. Do not invent information that cannot reasonably be inferred from the provided header.",
+      "12. Do not merge two distinct columns into one.",
+      "13. Do not split one column into multiple columns.",
+      "14. The number of output columns must always be exactly n_cols.",
+      "15. Every output item must be a string.",
+      "16. Preserve the semantic meaning of each original column as much as possible.",
+      "17. If a column is already correct, keep it unchanged.",
+      "18. If a column is named by a date, paraphrase it to approximate timeline. For example: \"01/01/2015\" -> \"Đầu năm 2015\"",
+      "Important:",
+      "- The input may contain duplicated values because merged HTML cells were flattened using forward-fill.",
+      "- Identical neighboring values are not automatically errors. Only remove duplication when the context indicates that it is an artifact of flattening.",
+      "- Use all provided columns as context when deciding how to repair an individual column.",
+      "- Prefer minimal correction over aggressive rewriting.",
+      "Output format:",
+      "Return ONLY valid JSON.",
+      "The JSON must be a list containing exactly n_cols strings.",
+      "Example:",
+      "[\"STT\", \"Họ và tên\", \"Chức vụ\", \"Doanh thu (Triệu VND)\", \"Ghi chú\"]",
+      "Do not output Markdown.",
+      "Do not output explanations.",
+      "Do not output any text before or after the JSON list."
+    ],
+    "user_prompt": [
+      "Clean and correct the following flattened HTML table header.",
+      "Expected number of columns: {n_cols}",
+      "Flattened header:",
+      "{flat_heading_table}",
+      "Return a JSON list containing exactly {n_cols} corrected column names, in the original column order."
+    ]
+  },
+  "table describe": {
+    "system_prompt": [
+      "You are an expert financial data analyst.",
+      "Your task is to analyze a given table and provide a concise 'title' and 'description'.",
+      "The title should be a short, accurate name for the table (e.g., 'Bảng Cân đối Kế toán', 'Kết quả Hoạt động Kinh doanh').",
+      "The description should summarize what the table represents, who it belongs to, and what period it covers, based on the context.",
+      "Return ONLY a JSON object with 'title' and 'description' fields.",
+      "Do not output markdown formatting like ```json ... ```.",
+      "Keep the description concise and under 100 words."
+    ],
+    "user_prompt": [
+      "Context before table:",
+      "{pre_text}",
+      "",
+      "Table columns:",
+      "{columns}",
+      "",
+      "Table data sample (transposed mapping: Column Name -> [Sample Values]):",
+      "{head_data}",
+      "",
+      "Context after table:",
+      "{post_text}",
+      "",
+      "Provide a JSON object with 'title' and 'description' in Vietnamese."
+    ]
+  }
+}

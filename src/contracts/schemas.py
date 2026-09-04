@@ -12,8 +12,9 @@ Mot file duy nhat thay cho folder dto/. Nhom theo stage:
 
 from __future__ import annotations
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Iterable
+from bs4.element import Tag
 
 @dataclass
 class Table:
@@ -39,7 +40,7 @@ class Table:
     pre_text: Optional[str] = field(default=None, repr=False)        # last 100 words before the table content
     post_text: Optional[str] = field(default=None, repr=False)      # First 100 words after the table content
 
-    html_table: Optional[List[str]] = field(default=None, repr=False)     # Table content (HTML tag) before converting to csv
+    html_table: Optional[List[Tag]] = field(default=None, repr=False)     # Table content (HTML tag) before converting to csv
 
     def get_id(self) -> str:
         """Generates the required string format for 'relevant_tables'."""
@@ -60,10 +61,91 @@ class Document:
     year: Optional[int] = None
     report_type: Optional[str] = None
     
-    tables: Dict[int, Table] = field(default_factory=dict) # Mapping from line to corresponding table
+    tables: List[Table] = field(default_factory=list)
 
     def get_id(self) -> str :
         return self.doc_id
+
+    def to_dict(self, root_dir: Path = None) -> dict[str, Any]:
+        """Chuyển đổi Document và Tables sang dict để ghi JSON."""
+        if root_dir is None:
+            from src.config import get_settings
+            root_dir = get_settings().paths.root
+        
+        tables_data = []
+        for t in self.tables:
+            csv_path_str = ""
+            if t.csv_path:
+                try:
+                    csv_path_str = str(t.csv_path.relative_to(root_dir)).replace("\\", "/")
+                except ValueError:
+                    csv_path_str = str(t.csv_path).replace("\\", "/")
+                    
+            tables_data.append({
+                "line": t.line,
+                "csv_path": csv_path_str,
+                "title": t.title,
+                "description": t.description,
+                "company": t.company,
+                "year": t.year,
+                "report_type": t.report_type,
+                "statement": t.statement,
+                "pre_text": t.pre_text,
+                "post_text": t.post_text
+            })
+            
+        return {
+            "doc_id": self.doc_id,
+            "ticker": self.ticker,
+            "company": self.company,
+            "year": self.year,
+            "report_type": self.report_type,
+            "tables": tables_data
+        }
+
+    @classmethod
+    def from_json(cls, json_path: Path, root_dir: Path = None) -> "Document":
+        """Tái cấu trúc Document và Tables từ file JSON."""
+        import json
+        
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            
+        if root_dir is None:
+            from src.config import get_settings
+            root_dir = get_settings().paths.root
+        
+        doc = cls(
+            ticker=data.get("ticker", ""),
+            doc_id=data.get("doc_id", ""),
+            doc_path=None,
+            company=data.get("company"),
+            year=data.get("year"),
+            report_type=data.get("report_type")
+        )
+        
+        for t_data in data.get("tables", []):
+            csv_path_str = t_data.get("csv_path")
+            csv_path = None
+            if csv_path_str:
+                csv_path = root_dir / csv_path_str
+                    
+            table = Table(
+                docs=doc,
+                line=t_data.get("line", []),
+                csv_path=csv_path,
+                title=t_data.get("title"),
+                description=t_data.get("description"),
+                company=t_data.get("company"),
+                year=t_data.get("year"),
+                report_type=t_data.get("report_type"),
+                statement=t_data.get("statement"),
+                pre_text=t_data.get("pre_text"),
+                post_text=t_data.get("post_text")
+            )
+            doc.tables.append(table)
+            
+        return doc
 
 # ──────────────────────────────────────────────────────────
 # SUBMISSION

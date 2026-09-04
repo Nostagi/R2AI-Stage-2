@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+from ..config import get_settings
 
-_LOGGING_DIR: Path = Path("logs")
+_LOGGING_DIR: Path = get_settings().paths.logging
 
 
 class ModuleLogger:

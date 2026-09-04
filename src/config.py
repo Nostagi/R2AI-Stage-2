@@ -14,6 +14,9 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
+from src.contracts.llm import LLMProvider
+
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = PROJECT_ROOT / "configs"
 
@@ -25,7 +28,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
-@dataclass(frozen=True)
+@dataclass
 class Paths:
     raw: Path
     interim: Path
@@ -34,19 +37,21 @@ class Paths:
     questions: Path
     outputs: Path
     labels: Path
+    logging: Path
+    models: Path
 
     def ensure(self) -> None:
         for p in (self.raw, self.interim, self.processed, self.index,
-                  self.questions, self.outputs, self.labels):
+                 self.outputs, self.labels, self.models):
             p.mkdir(parents=True, exist_ok=True)
 
 
-@dataclass(frozen=True)
+@dataclass
 class Settings:
     root: Path
     paths: Paths
     corpus: dict[str, Any]
-    llm: dict[str, Any]
+    llm: LLMProvider
     execution: dict[str, Any]
     submission: dict[str, Any]
     retrieval: dict[str, Any] = field(default_factory=dict)
@@ -86,7 +91,7 @@ def get_settings() -> Settings:
         corpus=main.get("corpus", {}),
         execution=main.get("execution", {}),
         submission=main.get("submission", {}),
-        llm=llm,
+        llm=LLMProvider(llm),
         retrieval=retrieval,
         hf_token=main.get("HF_token", None),
         dataset=main.get("dataset", None)

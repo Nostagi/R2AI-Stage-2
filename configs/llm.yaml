@@ -1,68 +1,59 @@
+prompt_path: configs/prompts.json
 llms:
-  - alias: header_fixer
-    model: ./models/Qwen3-8B
-    prompt_path: ./prompts/header_fix.txt
+  - alias: general purpose
+    model: Qwen2.5-8B-Instruct-GGUF
     backend:
       type: llama_cpp
-      model_file: ./models/qwen3-8b-q4_k_m.gguf
+      model_file: Qwen2.5-8B-Instruct-GGUF/qwen2.5-8b-instruct-q4_k_m.gguf
+      hf_repo: paultimothymooney/Qwen2.5-7B-Instruct-Q4_K_M-GGUF
+      hf_file: qwen2.5-7b-instruct-q4_k_m.gguf
       n_ctx: 8192
       n_gpu_layers: -1
     params:
       temperature: 0.0
       max_new_tokens: 1024
 
-  - alias: row_fixer
-    model: ./models/Qwen3-8B
-    prompt_path: ./prompts/corrupted_row_fixer.txt
+  - alias: reranker
+    model: bge-reranker-v2-m3
     backend:
       type: llama_cpp
-      model_file: ./models/qwen3-8b-q4_k_m.gguf
-      n_ctx: 8192
-      n_gpu_layers: -1
-    params:
-      temperature: 0.0
-      max_new_tokens: 1024
-
-  - alias: recall_retriever
-    model: Qwen/Qwen3-8B
-    prompt_path: null
-    backend:
-      type: transformers
-      device: cuda
-      dtype: bfloat16
-    params:
-      temperature: 0.0
-      max_new_tokens: 512
-
-  - alias: precision_reranker
-    model: ./models/Qwen3-8B
-    prompt_path: null
-    backend:
-      type: llama_cpp
-      model_file: ./models/qwen3-8b-q4_k_m.gguf
+      model_file: bge-reranker-v2-m3/bge-reranker-v2-m3-f16.gguf
+      hf_repo: BAAI/bge-reranker-v2-m3
+      hf_file: bge-reranker-v2-m3-f16.gguf
       n_ctx: 8192
       n_gpu_layers: -1
     params:
       temperature: 0.0
       max_new_tokens: 512
 
-  - alias: text_to_pandas_generator
-    model: ./models/Qwen2.5-14B-Instruct-AWQ
-    prompt_path: ./prompts/pandas_gen.txt
+  - alias: bi-encoder
+    model: bge-m3
     backend:
-      type: vllm
-      gpu_memory_utilization: 0.85
-      max_model_len: 8192
-      dtype: auto
-      quantization: awq
+      type: llama_cpp
+      model_file: bge-m3/bge-m3-f16.gguf
+      hf_repo: BAAI/bge-m3
+      hf_file: bge-m3-f16.gguf
+      n_ctx: 8192
+      n_gpu_layers: -1
     params:
-      temperature: 0.1
-      max_new_tokens: 1024
-      top_p: 0.95
+      temperature: 0.0
+
+  # - alias: text_to_pandas_generator
+  #   model: ./models/Qwen2.5-14B-Instruct-AWQ
+  #   backend:
+  #     type: vllm
+  #     gpu_memory_utilization: 0.85
+  #     max_model_len: 8192
+  #     dtype: auto
+  #     quantization: awq
+  #     hf_repo: Qwen/Qwen2.5-14B-Instruct-AWQ
+  #   params:
+  #     temperature: 0.1
+  #     max_new_tokens: 1024
+  #     top_p: 0.95
 
   - alias: query_planner
-    model: qwen3:8b
-    prompt_path: null
+    model: qwen2.5:8b
     backend:
       type: ollama
       host: http://localhost:11434
@@ -72,7 +63,6 @@ llms:
   
   - alias: grok_reasoning_agent
     model: grok-2-latest
-    prompt_path: null
     backend:
       type: api
       base_url: https://api.x.ai/v1

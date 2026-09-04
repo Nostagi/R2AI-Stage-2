@@ -13,8 +13,11 @@ class TransformersClient(LLM):
     Designed for local execution using standard PyTorch causal models.
     Supports lazy resource loading and explicit VRAM/RAM memory release.
     """
+    _model_cache: Dict[str, Any] = {}
+    _tokenizer_cache: Dict[str, Any] = {}
+    _ref_counts: Dict[str, int] = {}
 
-    def __init__(self, model_name: str, backend: Dict[str, Any], prompt_path: Optional[str] = None, params: Optional[Dict[str, Any]] = None):
+    def __init__(self, model_name: str, backend: Dict[str, Any], params: Optional[Dict[str, Any]] = None):
         """
         Initializes the Transformers client configuration.
 
@@ -22,7 +25,6 @@ class TransformersClient(LLM):
             model_name (str): Hugging Face model identifier or local checkpoint path.
             backend (Dict[str, Any]): Hardware & precision config 
                 (e.g., {"device": "cuda", "dtype": "bfloat16"}).
-            prompt_path (Optional[str]): Path to prompt template file.
             params (Optional[Dict[str, Any]]): Default inference parameters 
                 (e.g., {"temperature": 0.0, "max_new_tokens": 512}).
         """
@@ -30,14 +32,21 @@ class TransformersClient(LLM):
         self.device: str = backend.get("device", "cuda" if torch.cuda.is_available() else "cpu")
         self.dtype_str: str = backend.get("dtype", "auto")
         self.default_params: Dict[str, Any] = params or {}
-        self.prompt_template: str | None = None
 
-        if prompt_path:
-            self.prompt_template = read_text(prompt_path)
+        cache_key = self._get_cache_key()
+        cls = self.__class__
+        cls._ref_counts[cache_key] = cls._ref_counts.get(cache_key, 0) + 1
 
-        # Lazy-loaded attributes
-        self._model: Optional[Any] = None
-        self._tokenizer: Optional[Any] = None
+    def _get_cache_key(self) -> str:
+        return f"{self.model_id}_{self.device}_{self.dtype_str}"
+
+    @property
+    def _model(self) -> Any:
+        return self._model_cache.get(self._get_cache_key())
+
+    @property
+    def _tokenizer(self) -> Any:
+        return self._tokenizer_cache.get(self._get_cache_key())
 
     def _parse_dtype(self, dtype_str: str) -> Any:
         """Maps string dtype representations to torch.dtype objects."""
@@ -49,30 +58,46 @@ class TransformersClient(LLM):
         }
         return dtype_map.get(dtype_str.lower(), "auto")
 
+    def _ensure_model_downloaded(self) -> None:
+        hf_repo = self.backend.get("hf_repo")
+        if hf_repo and self.model_id.startswith("./"):
+            import os
+            if not os.path.exists(self.model_id):
+                print(f"Downloading {hf_repo} to {self.model_id}...")
+                from huggingface_hub import snapshot_download
+                from src.config import get_settings
+                token = get_settings().hf_token
+                snapshot_download(repo_id=hf_repo, local_dir=self.model_id, token=token)
+
     def _load_resources(self) -> None:
         """Lazy loads model and tokenizer into GPU/CPU memory on first request."""
-        if self._tokenizer is None:
+        self._ensure_model_downloaded()
+        cache_key = self._get_cache_key()
+
+        if cache_key not in self._tokenizer_cache:
             from transformers import AutoTokenizer  # type: ignore
 
-            self._tokenizer = AutoTokenizer.from_pretrained(
+            tokenizer = AutoTokenizer.from_pretrained(
                 self.model_id, 
                 trust_remote_code=True
             )
             # Left padding is required for batched generation in Causal LMs
-            if self._tokenizer.pad_token_id is None:
-                self._tokenizer.pad_token_id = self._tokenizer.eos_token_id
-            self._tokenizer.padding_side = "left"
+            if tokenizer.pad_token_id is None:
+                tokenizer.pad_token_id = tokenizer.eos_token_id
+            tokenizer.padding_side = "left"
+            self._tokenizer_cache[cache_key] = tokenizer
 
-        if self._model is None:
+        if cache_key not in self._model_cache:
             from transformers import AutoModelForCausalLM  # type: ignore
 
             torch_dtype = self._parse_dtype(self.dtype_str)
-            self._model = AutoModelForCausalLM.from_pretrained(
+            model = AutoModelForCausalLM.from_pretrained(
                 self.model_id,
                 torch_dtype=torch_dtype,
                 device_map=self.device if self.device != "cuda" else "auto",
                 trust_remote_code=True,
             )
+            self._model_cache[cache_key] = model
 
     def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> str:
         """Generates a response from a list of conversational messages."""
@@ -109,19 +134,9 @@ class TransformersClient(LLM):
 
         return self._tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
 
-    def generate(self, template_kwargs: Dict[str, Any], system_prompt: Optional[str] = None, **kwargs: Any) -> str:
-        """Generates a response for a single prompt string."""
-        messages = []
-        prompt = self.prompt_template.format(**template_kwargs) if self.prompt_template else ""
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-
-        return self.chat(messages, **kwargs)
-
-    def generate_batch(self, template_kwargs_list: List[Dict[str, Any]], system_prompt: Optional[str] = None, **kwargs: Any) -> List[str]:
-        """Processes multiple prompts concurrently using batched tokenization."""
-        if not template_kwargs_list:
+    def chat_batch(self, messages_list: List[List[Dict[str, str]]], **kwargs: Any) -> List[str]:
+        """Processes multiple conversational exchanges in a single batch."""
+        if not messages_list:
             return []
 
         self._load_resources()
@@ -131,21 +146,10 @@ class TransformersClient(LLM):
         max_new_tokens = int(gen_kwargs.pop("max_new_tokens", gen_kwargs.pop("max_tokens", 512)))
         top_p = gen_kwargs.pop("top_p", None)
 
-        # Format prompt list into template-formatted strings
-        formatted_texts = []
-        for tk in template_kwargs_list:
-            msgs = []
-            if system_prompt:
-                msgs.append({"role": "system", "content": system_prompt})
-            prompt = self.prompt_template.format(**tk) if self.prompt_template else ""
-            msgs.append({"role": "user", "content": prompt})
-            
-            text = self._tokenizer.apply_chat_template(
-                msgs, 
-                tokenize=False, 
-                add_generation_prompt=True
-            )
-            formatted_texts.append(text)
+        formatted_texts = [
+            self._tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+            for msgs in messages_list
+        ]
 
         inputs = self._tokenizer(
             formatted_texts, 
@@ -179,13 +183,21 @@ class TransformersClient(LLM):
         Unloads model weights and tokenizer from memory, releasing VRAM/RAM 
         for subsequent sequential pipeline steps.
         """
-        if self._model is not None:
-            del self._model
-            self._model = None
+        cache_key = self._get_cache_key()
+        cls = self.__class__
+        
+        if cache_key in cls._ref_counts:
+            cls._ref_counts[cache_key] -= 1
+            if cls._ref_counts[cache_key] > 0:
+                return  # Still in use by other instances
+            else:
+                del cls._ref_counts[cache_key]
+        
+        if cache_key in cls._model_cache:
+            del cls._model_cache[cache_key]
 
-        if self._tokenizer is not None:
-            del self._tokenizer
-            self._tokenizer = None
+        if cache_key in cls._tokenizer_cache:
+            del cls._tokenizer_cache[cache_key]
 
         gc.collect()
         if torch.cuda.is_available():

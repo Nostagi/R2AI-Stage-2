@@ -9,7 +9,7 @@ class OpenAICompatibleClient(LLM):
     Handles remote API requests where memory management is offloaded to the server infrastructure.
     """
 
-    def __init__(self, model_name: str, backend: Dict[str, Any], prompt_path: Optional[str] = None, params: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, model_name: str, backend: Dict[str, Any], params: Optional[Dict[str, Any]] = None) -> None:
         """
         Initializes API endpoint parameters and client authentication configs.
         """
@@ -19,10 +19,6 @@ class OpenAICompatibleClient(LLM):
         self.backend = backend
         self.default_params = params or {}
         self._client: Any | None = None
-        self.prompt_template: str | None = None
-        
-        if prompt_path:
-            self.prompt_template = read_text(prompt_path)
 
     def _get_client(self) -> Any:
         """
@@ -38,17 +34,6 @@ class OpenAICompatibleClient(LLM):
                 **b_kwargs
             )
         return self._client
-
-    def generate(self, template_kwargs: Dict[str, Any], system_prompt: Optional[str] = None, **kwargs: Any) -> str:
-        """
-        Generates text completion for a single prompt by routing to the chat endpoint.
-        """
-        messages = []
-        prompt = self.prompt_template.format(**template_kwargs) if self.prompt_template else ""
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-        return self.chat(messages, **kwargs)
 
     def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> str:
         """
@@ -70,11 +55,11 @@ class OpenAICompatibleClient(LLM):
         )
         return (response.choices[0].message.content or "").strip()
 
-    def generate_batch(self, template_kwargs_list: List[Dict[str, Any]], system_prompt: Optional[str] = None, **kwargs: Any) -> List[str]:
+    def chat_batch(self, messages_list: List[List[Dict[str, str]]], **kwargs: Any) -> List[str]:
         """
         Sequentially executes batch requests. Can be extended with asyncio/threading for concurrency.
         """
-        return [self.generate(tk, system_prompt=system_prompt, **kwargs) for tk in template_kwargs_list]
+        return [self.chat(msgs, **kwargs) for msgs in messages_list]
 
     def release_resources(self) -> None:
         """

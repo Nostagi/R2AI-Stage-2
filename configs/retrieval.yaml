@@ -4,7 +4,7 @@ bm25:
   tokenizer: vn_simple           # bo dau + lowercase + split non-alnum
 
 embedding:
-  model_id: BAAI/bge-m3          # multilingual, ho tro tieng Viet
+  alias: bi-encoder              # Alias trỏ về LLMProvider
   device: cuda
   batch_size: 32
   normalize: true
@@ -13,7 +13,7 @@ embedding:
 vectordb:
   backend: faiss                 # faiss | chroma
   metric: ip                     # inner product (voi vector da normalize == cosine)
-  index_type: IndexFlatIP
+  index_type: IndexHNSWFlat
 
 hybrid:
   fusion: rrf                    # rrf | weighted_sum
@@ -24,7 +24,7 @@ hybrid:
 
 rerank:
   enabled: true
-  model_id: BAAI/bge-reranker-v2-m3
+  alias: reranker                # Alias trỏ về LLMProvider
   top_k: 20
 
 selector:

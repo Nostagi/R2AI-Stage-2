@@ -8,8 +8,9 @@ class OllamaClient(LLM):
     LLM Client implementation utilizing Ollama for local low-latency model execution.
     Supports explicit VRAM offloading via Ollama's keep_alive parameter.
     """
+    _ref_counts: Dict[str, int] = {}
 
-    def __init__(self, model_name: str, backend: Dict[str, Any], prompt_path: Optional[str] = None, params: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, model_name: str, backend: Dict[str, Any], params: Optional[Dict[str, Any]] = None) -> None:
         """
         Initializes configuration parameters and prepares the lazy-loaded Ollama client.
         """
@@ -18,11 +19,10 @@ class OllamaClient(LLM):
         self.backend = backend
         self.default_params = params or {}
         self._client: Any | None = None
-        self.prompt_template: str | None = None
 
-        # Load nội dung prompt từ file text nếu đường dẫn được khai báo
-        if prompt_path:
-            self.prompt_template = read_text(prompt_path)
+        cache_key = self.model_name
+        cls = self.__class__
+        cls._ref_counts[cache_key] = cls._ref_counts.get(cache_key, 0) + 1
 
     def _get_client(self) -> Any:
         """
@@ -33,19 +33,14 @@ class OllamaClient(LLM):
 
             b_kwargs = {k: v for k, v in self.backend.items() if k not in ["type", "host"]}
             self._client = Client(host=self.host, **b_kwargs)
+            
+            try:
+                self._client.show(self.model_name)
+            except Exception as e:
+                if "not found" in str(e).lower():
+                    print(f"Downloading model {self.model_name} from Ollama...")
+                    self._client.pull(self.model_name)
         return self._client
-
-    def generate(self, template_kwargs: Dict[str, Any], system_prompt: Optional[str] = None, **kwargs: Any) -> str:
-        """
-        Generates text completion for a single prompt using chat-formatted execution.
-        """
-        messages = []
-        prompt = self.prompt_template.format(**template_kwargs) if self.prompt_template else ""
-
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-        return self.chat(messages, **kwargs)
 
     def chat(self, messages: List[Dict[str, str]], **kwargs: Any) -> str:
         """
@@ -69,16 +64,27 @@ class OllamaClient(LLM):
         )
         return response["message"]["content"] or ""
 
-    def generate_batch(self, template_kwargs_list: List[Dict[str, Any]], system_prompt: Optional[str] = None, **kwargs: Any) -> List[str]:
+    def chat_batch(self, messages_list: List[List[Dict[str, str]]], **kwargs: Any) -> List[str]:
         """
-        Sequentially processes a batch of prompts through the Ollama client.
+        Sequentially processes a batch of conversational exchanges through the Ollama client.
         """
-        return [self.generate(tk, system_prompt=system_prompt, **kwargs) for tk in template_kwargs_list]
+        return [self.chat(msgs, **kwargs) for msgs in messages_list]
 
     def release_resources(self) -> None:
         """
         Forces Ollama to immediately unload the model from VRAM by setting keep_alive to 0.
         """
+        cache_key = self.model_name
+        cls = self.__class__
+        
+        if cache_key in cls._ref_counts:
+            cls._ref_counts[cache_key] -= 1
+            if cls._ref_counts[cache_key] > 0:
+                self._client = None
+                return
+            else:
+                del cls._ref_counts[cache_key]
+
         if self._client is not None:
             try:
                 # Setting keep_alive=0 prompts Ollama to purge the model from memory instantly

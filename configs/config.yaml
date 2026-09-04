@@ -8,7 +8,8 @@ paths:
   index: data/index              # BM25 pickle + FAISS index + metadata.parquet
   questions: data/questions      # public_test.json / private_test.json
   outputs: outputs                 # outputs/<name>/ staging + outputs/submissions/*.zip
-  labels: labels                 # nhãn tự gán để eval local
+  logging: logs
+  models: models                 # thư mục lưu local models (GGUF, safetensors)
 
 corpus:
   encoding: utf-8

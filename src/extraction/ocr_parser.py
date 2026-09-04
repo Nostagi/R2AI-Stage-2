@@ -1,12 +1,16 @@
 import re
 from typing import List, Optional
+from bs4 import BeautifulSoup
+from bs4.element import Tag
 from collections import deque
 
 from ..contracts.schemas import Document, Table
 from ..utils.logging import get_logger
 from ..utils.re import truncate_text
+from ..utils.spell_check import symspell
 
 LOGGER = get_logger("ocr_pipeline")
+
 
 class OCRParser:
 
@@ -51,15 +55,15 @@ class OCRParser:
             # Xử lý các bảng chưa thu thập đủ 5 dòng post_text khi đã đọc hết file
             self._finalize_post_text()
 
-            unique_tables = len(set(id(t) for t in doc.tables.values()))
-            LOGGER.progress(f"Đã xử lý xong {doc.doc_id}. Tìm thấy {unique_tables} bảng độc lập.")   
+            LOGGER.progress(f"Đã xử lý xong {doc.doc_id}. Tìm thấy {len(doc.tables)} bảng độc lập.")   
 
         except Exception as e:
-            LOGGER.detail(f"Lỗi khi parse file {doc.doc_path}: {str(e)}")
+            import traceback
+            LOGGER.detail(f"Lỗi khi parse file {doc.doc_path}: \n{traceback.format_exc()}")
             
         return doc
 
-    def _handle_table_line(self, doc: Document, line_idx: int, html_raw: str) -> None:
+    def _handle_table_line(self, doc: Document, line_idx: int, html_raw: Tag) -> None:
         current_header = self._extract_table_header(html_raw)
         if not current_header :
             LOGGER.progress(f"Lỗi định dạng table tại dòng {line_idx} của document {doc.doc_id}.")
@@ -69,7 +73,6 @@ class OCRParser:
         if self._last_header and (current_header == self._last_header):
             self._last_table.line.append(line_idx)
             self._last_table.html_table.append(html_raw)
-            doc.tables[line_idx] = self._last_table
             LOGGER.detail(f"\tĐã gộp bảng tại dòng {line_idx} vào bảng trước đó tại {self._last_table.line[0]}.")
                 
             # Tiếp tục merge nên ta reset tiến trình gom post_text
@@ -85,13 +88,14 @@ class OCRParser:
         new_table = Table(
             docs=doc,
             line=[line_idx],
+            company=doc.company,
             year=doc.year,
             report_type=doc.report_type,
             html_table=[html_raw],
             pre_text=pre_text_str if pre_text_str else None
         )
         
-        doc.tables[line_idx] = new_table
+        doc.tables.append(new_table)
         LOGGER.detail(f"\tĐã trích xuất bảng mới tại dòng: {line_idx}")
         
         # Cập nhật trạng thái để bắt đầu track post_text cho bảng mới
@@ -115,24 +119,48 @@ class OCRParser:
             """
             return line.startswith("===== PAGE ") and line.endswith(" =====")
     
-    def _extract_html_table(self, line:str) -> str:
-        if "<table>" in line and "</table>" in line:
-            # Trích xuất chính xác đoạn HTML
-            start_idx = line.find("<table>")
-            end_idx = line.find("</table>") + len("</table>")
-            html_raw = line[start_idx:end_idx]
-                                
-            return html_raw
+    def _extract_html_table(self, line: str) -> Optional[Tag]:
+        """
+        Parse dòng OCR bằng BeautifulSoup và trả về ``<table>`` dưới dạng ``Tag``.
 
-        else:
+        Khác với cách cắt chuỗi bằng regex/find(), BeautifulSoup có thể xử lý:
+        - ``<table>`` có attribute hoặc viết hoa/viết thường khác nhau.
+        - whitespace/newline và các tag lồng nhau.
+        - HTML không hoàn toàn chuẩn nhưng vẫn có thể được parser phục hồi.
+        """
+        if line.find("<table>") >= 0:
+            line = symspell(line)
+
+        soup = BeautifulSoup(line, "html.parser")
+
+        return soup.find("table")
+
+    def _extract_table_header(self, html_raw: Tag) -> Optional[Tag]:
+        """
+        Trích xuất row header đầu tiên của bảng dưới dạng BeautifulSoup ``Tag``.
+
+        Ưu tiên ``<tr>`` đầu tiên trong ``<thead>``; nếu không có ``<thead>``
+        thì dùng ``<tr>`` đầu tiên trong toàn bảng. Trả về ``None`` nếu không có row.
+        """
+        if html_raw is None:
             return None
 
-    def _extract_table_header(self, html_raw: str) -> str:
-        """
-        Trích xuất dòng đầu tiên (thẻ <tr> đầu tiên) của bảng HTML để phục vụ đối chiếu gộp bảng.
-        """
-        match = re.search(r'(<tr[^>]*>.*?</tr>)', html_raw, re.IGNORECASE | re.DOTALL)
-        return match.group(1) if match else ""
+        if isinstance(html_raw, Tag):
+            table = html_raw if html_raw.name == "table" else html_raw.find("table")
+        else:
+            soup = BeautifulSoup(str(html_raw), "html.parser")
+            table = soup.find("table")
+
+        if table is None:
+            return None
+
+        thead = table.find("thead")
+        if thead is not None:
+            header_row = thead.find("tr")
+            if header_row is not None:
+                return header_row
+
+        return table.find("tr")
 
     def _finalize_post_text(self) -> None:
         """
